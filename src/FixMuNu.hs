@@ -15,19 +15,30 @@ inFix = Fix
 outFix :: Fix f -> f (Fix f)
 outFix (Fix f) = f
 
+cataFix :: Functor f => (f a -> a) -> Fix f -> a
+cataFix alg = alg . fmap (cataFix alg) . outFix
+
 -- | Uses rank 2 types
 --   newtype Mu f = Mu { runMu :: forall r. (f r -> r) -> r }
 newtype Mu f where
   Mu :: (forall a. (f a -> a) -> a) -> Mu f
 
+-- | 'Mu' takes a F-Algebra and returns a value of the carrier type 'a', so we
+--   pass it an algebra and get an 'a'.
+runMu :: (f a -> a) -> Mu f -> a
+runMu alg (Mu f) = f alg
+
+-- | An F-Algebra with carrier 'Mu f'.
 inMu :: Functor f => f (Mu f) -> Mu f
-inMu fmuf = Mu (\f -> f (fmap (cataMu f) fmuf))
+inMu fmuf = Mu $ \f -> f (runMu f <$> fmuf)
 
 outMu :: Functor f => Mu f -> f (Mu f)
-outMu = cataMu (fmap inMu)
+outMu = runMu $ fmap inMu
 
-cataMu :: (f a -> a) -> Mu f -> a
-cataMu alg (Mu f) = f alg
+-- | It turns out that 'cataMu' == 'runMu' since 'Mu' is morally a Church
+--   encoding, but I write it this way for consistency with 'Fix' and 'Nu'.
+cataMu :: Functor f => (f a -> a) -> Mu f -> a
+cataMu alg = alg . fmap (cataMu alg) . outMu
 
 -- Uses existentail quantification
 -- data Nu f = forall x. Nu x (x -> f x)
@@ -36,110 +47,102 @@ data Nu f where
 
 inNu :: Functor f => f (Nu f) -> Nu f
 inNu = Nu (fmap outNu)
--- inNu fnuf = Nu $ fnuf (fmap outNu)
 
 outNu :: Functor f => Nu f -> f (Nu f)
 outNu (Nu f a) = Nu f <$> f a
--- outNu (Nu x f) = fmap (\a -> Nu a f) (f x)
+
+cataNu :: Functor f => (f a -> a) -> Nu f -> a
+cataNu alg = alg . fmap (cataNu alg) . outNu
+
 
 instance Show (f (Fix f)) => Show (Fix f) where
   showsPrec p (Fix x) = showParen (p > 10)
                       $ showString "Fix " . showsPrec 11 x
 
-instance Show (Fix f) => Show (Mu f) where
+instance (Functor f, Show (Fix f)) => Show (Mu f) where
   showsPrec p mu = showParen (p > 10)
-                 $ showString "fixMu " . showsPrec 11 (muFix mu)
+                 $ showString "fixToMu " . showsPrec 11 (muToFix mu)
 
 instance (Functor f, Show (Fix f)) => Show (Nu f) where
   showsPrec p nu = showParen (p > 10)
-                 $ showString "fixNu " . showsPrec 11 (nuFix nu)
+                 $ showString "fixToNu " . showsPrec 11 (nuToFix nu)
 
-fixMu :: Functor f => Fix f -> Mu f
-fixMu = inMu . fmap fixMu . outFix
+nuToFix :: Functor f => Nu f -> Fix f
+nuToFix = inFix . fmap nuToFix . outNu
 
-nuMu :: Functor f => Nu f -> Mu f
-nuMu = inMu . fmap nuMu . outNu
+muToFix :: Functor f => Mu f -> Fix f
+muToFix = inFix . fmap muToFix . outMu
+-- muToFix muf = inFix (fmap muToFix (outMu (Mu f)))
+-- muToFix (Mu f) = inFix (fmap muToFix (runMu $ fmap inMu (Mu f)))
+-- muToFix (Mu f) = inFix (fmap muToFix (runMu $ fmap inMu (Mu f)))
+-- muToFix (Mu f) = f inFix
 
-nuFix :: Functor f => Nu f -> Fix f
-nuFix = inFix . fmap nuFix . outNu
+fixToMu :: Functor f => Fix f -> Mu f
+fixToMu = inMu . fmap fixToMu . outFix
 
-muFix :: Mu f -> Fix f
-muFix (Mu f) = f inFix
+nuToMu :: Functor f => Nu f -> Mu f
+nuToMu = inMu . fmap nuToMu . outNu
 
-muNu :: Functor f => Mu f -> Nu f
-muNu (Mu f) = f inNu
+fixToNu :: Functor f => Fix f -> Nu f
+fixToNu = inNu . fmap fixToNu . outFix
 
-fixNu :: Fix f -> Nu f
-fixNu = (`Nu` outFix)
-
+muToNu :: Functor f => Mu f -> Nu f
+muToNu = inNu . fmap muToNu . outMu
 --
 
-fixZero, fixOne, fixTwo :: Fix Maybe
-fixZero = Fix Nothing
-fixOne  = Fix . Just . Fix $ Nothing
-fixTwo  = Fix . Just . Fix . Just . Fix $ Nothing
+-- nuZero, nuOne, nuTwo :: Nu Maybe
+-- nuZero = Nu (const Nothing) ()
+-- nuOne  = Nu (fmap (const Nothing)) (Just ())
+-- nuTwo  = Nu (fmap (fmap (const Nothing))) (Just (Just ()))
 
-muZero, muOne, muTwo :: Mu Maybe
-muZero = Mu $ \f -> f Nothing
-muOne  = Mu $ \f -> f . Just . f $ Nothing
-muTwo  = Mu $ \f -> f . Just . f . Just . f $ Nothing
+-- succFix :: Fix Maybe -> Fix Maybe
+-- succFix = Fix . Just
 
-nuZero, nuOne, nuTwo :: Nu Maybe
-nuZero = Nu () (const Nothing)
-nuOne  = Nu (Just ()) (fmap (const Nothing))
-nuTwo  = Nu (Just (Just ())) (fmap (fmap (const Nothing)))
+-- -- nuSucc :: Nu Maybe -> Nu Maybe
+-- -- nuSucc (Nu x f) = Nu (fmap f) (Just x)
 
-fixSucc :: Fix Maybe -> Fix Maybe
-fixSucc = Fix . Just
+-- fixToInt :: Fix Maybe -> Integer
+-- fixToInt (Fix Nothing)     = 0
+-- fixToInt (Fix (Just fixm)) = 1 + fixToInt fixm
 
-muSucc :: Mu Maybe -> Mu Maybe
-muSucc mum = Mu (\f -> f (Just (mum `runMu` f)))
+-- muToInt :: Mu Maybe -> Integer
+-- muToInt (Mu f) = f go
+--   where
+--     go Nothing  = 0
+--     go (Just r) = 1 + r
 
-nuSucc :: Nu Maybe -> Nu Maybe
-nuSucc (Nu x f) = Nu (Just x) (fmap f)
+-- nuToInt :: Nu Maybe -> Integer
+-- nuToInt (Nu x f) = go x
+--   where
+--     go y = case f y of
+--       Nothing -> 0
+--       Just z  -> 1 + go z
 
-fixToInt :: Fix Maybe -> Integer
-fixToInt (Fix Nothing)     = 0
-fixToInt (Fix (Just fixm)) = 1 + fixToInt fixm
+-- --
 
-muToInt :: Mu Maybe -> Integer
-muToInt (Mu f) = f go
-  where
-    go Nothing  = 0
-    go (Just r) = 1 + r
+-- zeroFix' :: Fix Maybe
+-- zeroFix' = inFix Nothing
 
-nuToInt :: Nu Maybe -> Integer
-nuToInt (Nu x f) = go x
-  where
-    go y = case f y of
-      Nothing -> 0
-      Just z  -> 1 + go z
+-- muZero' :: Mu Maybe
+-- muZero' = inMu Nothing
 
---
+-- nuZero' :: Nu Maybe
+-- nuZero' = inNu Nothing
 
-fixZero' :: Fix Maybe
-fixZero' = inFix Nothing
+-- succFix' :: Fix Maybe -> Fix Maybe
+-- succFix' = inFix . Just
 
-muZero' :: Mu Maybe
-muZero' = inMu Nothing
+-- muSucc' :: Mu Maybe -> Mu Maybe
+-- muSucc' = inMu . Just
 
-nuZero' :: Nu Maybe
-nuZero' = inNu Nothing
+-- nuSucc' :: Nu Maybe -> Nu Maybe
+-- nuSucc' = inNu . Just
 
-fixSucc' :: Fix Maybe -> Fix Maybe
-fixSucc' = inFix . Just
+-- fixToInt' :: Fix Maybe -> Integer
+-- fixToInt' = maybe 0 (succ . fixToInt') . outFix
 
-muSucc' :: Mu Maybe -> Mu Maybe
-muSucc' = inMu . Just
+-- muToInt' :: Mu Maybe -> Integer
+-- muToInt' = maybe 0 (succ . muToInt') . outMu
 
-nuSucc' :: Nu Maybe -> Nu Maybe
-nuSucc' = inNu . Just
-
-fixToInt' :: Fix Maybe -> Integer
-fixToInt' = maybe 0 (succ . fixToInt') . outFix
-
-muToInt' :: Mu Maybe -> Integer
-muToInt' = maybe 0 (succ . muToInt') . outMu
-
-nuToInt' :: Nu Maybe -> Integer
-nuToInt' = maybe 0 (succ . nuToInt') . outNu
+-- nuToInt' :: Nu Maybe -> Integer
+-- nuToInt' = maybe 0 (succ . nuToInt') . outNu

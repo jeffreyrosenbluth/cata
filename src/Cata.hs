@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GADTs         #-}
 {-# LANGUAGE RankNTypes    #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Cata where
 
@@ -187,54 +185,3 @@ zig xs = go 0 xs
       0 -> R x (go (n-1) xs)
       1 -> L (go (n-1) xs) x
 
-newtype Mu f = Mu (forall a. (f a -> a) -> a)
-
-instance Show (f (Fix f)) => Show (Fix f) where
-    showsPrec n x = showParen (n > 10) $ \s ->
-        "Fix " ++ showsPrec 11 (out x) s
-
-data W f where
-  W :: ((f a -> a) -> a) -> W f
-
-zeroMu :: Mu Maybe
-zeroMu = Mu $ \f -> f Nothing
-
-zeroW :: W Maybe
-zeroW = W $ \f -> f Nothing
-
-succMu :: Mu Maybe -> Mu Maybe
-succMu (Mu f) = Mu $ \g -> g (Just (f g))
-
-succW :: W Maybe -> W Maybe
-succW (W f) = W $ \g -> g (Just (f g))
--- succMu mu = wrap (Just mu)
-
-foldMu :: (f a -> a) -> Mu f -> a
-foldMu g (Mu f) = f g
-
-wrap :: (Functor f) => f (Mu f) -> Mu f
-wrap layer = Mu (\alg -> alg (fmap (foldMu alg) layer))
-
-inMu :: Functor f => f (Mu f) -> Mu f
-inMu fmf = Mu $ \g -> g (fmap (foldMu g) fmf)
-
-maybeAlg :: Maybe Int -> Int
-maybeAlg Nothing = 0
-maybeAlg (Just a) = 1 + a
-
-muToFix :: Mu f -> Fix f
-muToFix (Mu f) = f In
--- muToFix mf = foldMu In mf
-
-foldFix :: Functor f => (f a -> a) -> Fix f -> a
-foldFix = cata
-
-fixToMu :: Functor f => Fix f -> Mu f
-fixToMu ff = cata wrap ff
-
-
-zeroFix :: Fix Maybe
-zeroFix = In Nothing
-
-succFix :: Fix Maybe -> Fix Maybe
-succFix m = In $ Just m
